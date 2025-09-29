@@ -1,0 +1,81 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Testing
+.coverage
+.pytest_cache/
+htmlcov/
+.tox/
+.hypothesis/
+
+# Environment files (SENSITIVE - Never commit these)
+.env
+.env.*
+.env.cloud
+.env.secrets
+.env.local
+*.env
+
+# Cloud credentials (SENSITIVE)
+key.json
+gcp-key.json
+aws-credentials
+credentials.json
+service-account.json
+*.pem
+*.key
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+terraform.tfvars
+*.auto.tfvars
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+logs/
+*.pid
+
+# Local storage simulator
+storage_simulator/
+
+# Temporary files
+tmp/
+temp/

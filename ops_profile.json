@@ -1,0 +1,141 @@
+{
+  "service": "transfer-worker",
+  "version": "1.0.0",
+  "failure_handling": {
+    "retry_strategy": {
+      "max_attempts": 3,
+      "backoff": {
+        "type": "exponential",
+        "initial_delay_ms": 1000,
+        "max_delay_ms": 30000,
+        "multiplier": 2
+      },
+      "retryable_errors": [
+        "NETWORK_ERROR",
+        "TIMEOUT",
+        "RATE_LIMIT",
+        "SERVICE_UNAVAILABLE"
+      ]
+    },
+    "dead_letter_queue": {
+      "enabled": true,
+      "topic": "transfer-worker-dlq",
+      "max_receive_count": 3
+    },
+    "circuit_breaker": {
+      "enabled": true,
+      "failure_threshold": 5,
+      "timeout_seconds": 60,
+      "half_open_max_requests": 3
+    }
+  },
+  "compatibility": {
+    "versioning": {
+      "strategy": "semantic",
+      "backward_compatible": true,
+      "deprecation_policy": {
+        "notice_period_days": 30,
+        "sunset_period_days": 90
+      },
+      "breaking_changes": {
+        "major_version_required": true,
+        "migration_guide_required": true
+      }
+    },
+    "supported_schema_versions": ["1.0.0", "1.1.0"]
+  },
+  "security": {
+    "authentication": {
+      "preferred_method": "workload_identity_federation",
+      "alternatives": ["iam_role_assumption", "service_account_impersonation"],
+      "forbidden": ["long_lived_keys", "api_keys"]
+    },
+    "authorization": {
+      "principle": "least_privilege",
+      "required_permissions": {
+        "source": ["storage.objects.get"],
+        "destination": ["storage.objects.create", "storage.objects.delete"]
+      }
+    },
+    "secrets_management": {
+      "provider": "cloud_native_secret_manager",
+      "rotation_policy": "automatic",
+      "encryption": "at_rest_and_in_transit"
+    }
+  },
+  "observability": {
+    "logging": {
+      "format": "structured_json",
+      "level": "info",
+      "required_fields": [
+        "timestamp",
+        "level",
+        "correlation_id",
+        "event_id",
+        "service",
+        "message"
+      ],
+      "sensitive_data_masking": true
+    },
+    "metrics": {
+      "provider": "prometheus",
+      "endpoints": {
+        "metrics": "/metrics",
+        "health": "/health",
+        "readiness": "/ready"
+      },
+      "key_metrics": [
+        "transfer_duration_seconds",
+        "transfer_bytes",
+        "transfer_success_total",
+        "transfer_failure_total",
+        "retry_count"
+      ]
+    },
+    "tracing": {
+      "enabled": true,
+      "provider": "opentelemetry",
+      "sampling_rate": 0.1
+    }
+  },
+  "slos": [
+    {
+      "name": "transfer_success_rate",
+      "description": "Percentage of successful transfers",
+      "target": 99.5,
+      "measurement_window": "30d",
+      "calculation": "successful_transfers / total_transfers * 100"
+    },
+    {
+      "name": "transfer_latency_p99",
+      "description": "99th percentile transfer latency",
+      "target_seconds": 60,
+      "measurement_window": "7d",
+      "calculation": "percentile(transfer_duration_seconds, 99)"
+    }
+  ],
+  "example_event": {
+    "schemaVersion": "1.0.0",
+    "eventId": "550e8400-e29b-41d4-a716-446655440000",
+    "correlationId": "7c9b5a3e-4f2d-4b8e-9c7a-2d1e3f4a5b6c",
+    "timestamp": "2024-01-15T10:30:00Z",
+    "source": {
+      "provider": "aws_s3",
+      "bucket": "source-data-bucket",
+      "key": "data/2024/01/file.parquet",
+      "region": "us-east-1"
+    },
+    "destination": {
+      "provider": "gcp_gcs",
+      "bucket": "destination-data-bucket",
+      "key": "imports/2024/01/file.parquet",
+      "region": "us-central1"
+    },
+    "metadata": {
+      "contentType": "application/octet-stream",
+      "checksumSHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "maxRetries": 3,
+      "priority": "normal"
+    }
+  }
+}

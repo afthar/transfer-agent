@@ -1,0 +1,61 @@
+# Example Terraform variables file for Transfer Worker
+# Copy this file to terraform.tfvars and fill in your values
+
+# Environment
+environment = "dev"
+owner_email = "your-team@example.com"
+cost_center = "engineering"
+
+# AWS Configuration
+aws_region     = "us-east-1"
+aws_account_id = "123456789012"  # Your AWS account ID
+
+# Source and destination buckets for AWS
+aws_source_bucket = "my-transfer-source-bucket"
+aws_dest_bucket   = "my-transfer-dest-bucket"
+enable_aws_queue  = true
+
+# GCP Configuration  
+gcp_project_id     = "testops-458808"
+gcp_project_number = "123456789012"  # Your GCP project number
+gcp_region         = "us-central1"
+
+# Source and destination buckets for GCP
+gcs_source_bucket = "//transfer-worker-source-2632"
+gcs_dest_bucket   = "transfer-worker-dest-29839"
+enable_gcp_queue  = true
+
+# Kubernetes Deployment (optional)
+deploy_to_kubernetes = false  # Set to true to deploy to Kubernetes
+kubernetes_provider  = "gke"  # Options: eks, gke
+kubernetes_node_count = 3
+kubernetes_node_type = "e2-medium"  # For GKE. Use t3.medium for EKS
+worker_replicas = 3
+
+# Container Configuration
+container_registry  = "gcr.io/my-project"  # Your container registry
+container_image_tag = "v1.0.0"
+
+# Monitoring
+enable_monitoring = true
+alert_email      = "alerts@example.com"
+# slack_webhook_url = "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"  # Optional
+
+# Network Configuration
+vpc_cidr                = "10.0.0.0/16"
+enable_private_endpoints = true
+
+# Security Configuration
+enable_encryption    = true
+kms_key_rotation    = true
+enable_audit_logging = true
+
+# Performance Configuration
+max_concurrent_transfers = 10
+transfer_timeout_seconds = 300
+
+# Auto-scaling Configuration
+enable_autoscaling     = true
+min_workers           = 1
+max_workers           = 10
+target_cpu_utilization = 70

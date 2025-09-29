@@ -1,0 +1,102 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/transfer-worker/v1/event.schema.json",
+  "title": "CloudTransferEvent",
+  "description": "Event schema for cross-cloud file transfer operations",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Semantic version of the schema",
+      "example": "1.0.0"
+    },
+    "eventId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique identifier for the event (idempotency key)"
+    },
+    "correlationId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Correlation ID for distributed tracing"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when event was created"
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "provider": {
+          "type": "string",
+          "enum": ["aws_s3", "gcp_gcs"],
+          "description": "Cloud storage provider"
+        },
+        "bucket": {
+          "type": "string",
+          "description": "Source bucket/container name"
+        },
+        "key": {
+          "type": "string",
+          "description": "Object key/path within bucket"
+        },
+        "region": {
+          "type": "string",
+          "description": "Region/location of the source"
+        }
+      },
+      "required": ["provider", "bucket", "key"]
+    },
+    "destination": {
+      "type": "object",
+      "properties": {
+        "provider": {
+          "type": "string",
+          "enum": ["aws_s3", "gcp_gcs"],
+          "description": "Cloud storage provider"
+        },
+        "bucket": {
+          "type": "string",
+          "description": "Destination bucket/container name"
+        },
+        "key": {
+          "type": "string",
+          "description": "Object key/path within bucket"
+        },
+        "region": {
+          "type": "string",
+          "description": "Region/location of the destination"
+        }
+      },
+      "required": ["provider", "bucket", "key"]
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Additional metadata for the transfer",
+      "properties": {
+        "contentType": {
+          "type": "string",
+          "description": "MIME type of the file"
+        },
+        "checksumSHA256": {
+          "type": "string",
+          "description": "SHA256 checksum for integrity validation"
+        },
+        "maxRetries": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10,
+          "default": 3
+        },
+        "priority": {
+          "type": "string",
+          "enum": ["low", "normal", "high"],
+          "default": "normal"
+        }
+      }
+    }
+  },
+  "required": ["schemaVersion", "eventId", "correlationId", "timestamp", "source", "destination"]
+}

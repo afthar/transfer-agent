@@ -1,0 +1,409 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Run security scans daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+env:
+  PYTHON_VERSION: '3.11'
+  DOCKER_REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  # AWS Configuration from Secrets
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+  AWS_SOURCE_BUCKET: ${{ secrets.AWS_SOURCE_BUCKET }}
+  AWS_DEST_BUCKET: ${{ secrets.AWS_DEST_BUCKET }}
+  # GCP Configuration from Secrets
+  GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  GCP_REGION: ${{ secrets.GCP_REGION }}
+  GCS_SOURCE_BUCKET: ${{ secrets.GCS_SOURCE_BUCKET }}
+  GCS_DEST_BUCKET: ${{ secrets.GCS_DEST_BUCKET }}
+
+jobs:
+  # Job 1: Linting and Code Quality
+  lint:
+    name: Lint and Code Quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Cache pip packages
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8 black pylint mypy
+      
+      - name: Run Black formatter check
+        run: black --check transfer_worker.py test_transfer_worker.py
+        continue-on-error: true
+      
+      - name: Run Flake8 linter
+        run: flake8 transfer_worker.py test_transfer_worker.py --max-line-length=100
+        continue-on-error: true
+      
+      - name: Run Pylint
+        run: pylint transfer_worker.py --disable=C0114,C0116
+        continue-on-error: true
+      
+      - name: Run MyPy type checker
+        run: mypy transfer_worker.py --ignore-missing-imports
+        continue-on-error: true
+
+  # Job 2: Unit Tests
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.10', '3.11']
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      
+      - name: Cache pip packages
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ hashFiles('requirements.txt') }}
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install coverage pytest-cov
+      
+      - name: Run unit tests with coverage
+        run: |
+          pytest test_transfer_worker.py -v --cov=transfer_worker --cov-report=xml --cov-report=term
+      
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml
+          flags: unittests
+          name: codecov-${{ matrix.python-version }}
+        continue-on-error: true
+
+  # Job 3: Security Scanning
+  security:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Install security tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install safety bandit semgrep
+      
+      - name: Run Safety check for vulnerable dependencies
+        run: |
+          pip install -r requirements.txt
+          safety check --json
+        continue-on-error: true
+      
+      - name: Run Bandit security linter
+        run: |
+          bandit -r transfer_worker.py -f json -o bandit-report.json
+          cat bandit-report.json
+        continue-on-error: true
+      
+      - name: Run Semgrep security scanner
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: auto
+        continue-on-error: true
+      
+      - name: Upload Bandit results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: bandit-results
+          path: bandit-report.json
+      
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+        continue-on-error: true
+      
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+        continue-on-error: true
+
+  # Job 4: SBOM Generation
+  sbom:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install cyclonedx-bom
+      
+      - name: Generate SBOM
+        run: |
+          cyclonedx-py -r requirements.txt -o sbom.json --format json
+          cyclonedx-py -r requirements.txt -o sbom.xml --format xml
+      
+      - name: Upload SBOM artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: sbom
+          path: |
+            sbom.json
+            sbom.xml
+
+  # Job 5: Docker Build and Scan
+  docker:
+    name: Docker Build and Scan
+    runs-on: ubuntu-latest
+    needs: [lint, test, security]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.DOCKER_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+      
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          outputs: type=docker,dest=/tmp/image.tar
+      
+      - name: Load Docker image
+        run: docker load --input /tmp/image.tar
+      
+      - name: Run Trivy container scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          format: 'sarif'
+          output: 'trivy-container.sarif'
+          severity: 'CRITICAL,HIGH'
+      
+      - name: Upload Trivy container scan results
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-container.sarif'
+        continue-on-error: true
+      
+      - name: Run Hadolint Dockerfile linter
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+      
+      - name: Push Docker image
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  # Job 6: Integration Tests
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: docker
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Run integration tests
+        run: |
+          python -m pytest test_transfer_worker.py::TestIntegration -v
+
+  # Job 7: Release
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: [lint, test, security, docker, integration]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Generate changelog
+        id: changelog
+        run: |
+          echo "# Release Notes" > CHANGELOG.md
+          echo "## Changes" >> CHANGELOG.md
+          git log --pretty=format:"- %s" HEAD~10..HEAD >> CHANGELOG.md
+      
+      - name: Create Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ github.run_number }}
+          release_name: Release v${{ github.run_number }}
+          body_path: CHANGELOG.md
+          draft: false
+          prerelease: false
+        continue-on-error: true
+
+  # Job 8: Deploy to Cloud
+  deploy:
+    name: Deploy to Cloud
+    runs-on: ubuntu-latest
+    needs: [lint, test, security, docker, integration]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+      
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+      
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+      
+      - name: Deploy to AWS ECS/Lambda
+        if: ${{ secrets.DEPLOY_TO_AWS == 'true' }}
+        run: |
+          echo "Deploying to AWS..."
+          # Deploy container to ECR
+          aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
+            docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
+          
+          docker tag ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/transfer-worker:latest
+          
+          docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/transfer-worker:latest
+          
+          # Update ECS service or Lambda function
+          # aws ecs update-service --cluster transfer-worker --service transfer-worker --force-new-deployment
+      
+      - name: Deploy to Google Cloud Run
+        if: ${{ secrets.DEPLOY_TO_GCP == 'true' }}
+        run: |
+          echo "Deploying to GCP..."
+          # Configure docker for GCR
+          gcloud auth configure-docker
+          
+          # Tag and push to GCR
+          docker tag ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
+            gcr.io/${{ secrets.GCP_PROJECT_ID }}/transfer-worker:latest
+          
+          docker push gcr.io/${{ secrets.GCP_PROJECT_ID }}/transfer-worker:latest
+          
+          # Deploy to Cloud Run
+          gcloud run deploy transfer-worker \
+            --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/transfer-worker:latest \
+            --platform managed \
+            --region ${{ secrets.GCP_REGION }} \
+            --allow-unauthenticated \
+            --set-env-vars AWS_REGION=${{ secrets.AWS_REGION }},GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }}
+      
+      - name: Run Terraform
+        if: ${{ secrets.DEPLOY_TERRAFORM == 'true' }}
+        working-directory: terraform
+        run: |
+          terraform init
+          terraform plan \
+            -var="aws_account_id=${{ secrets.AWS_ACCOUNT_ID }}" \
+            -var="aws_region=${{ secrets.AWS_REGION }}" \
+            -var="aws_source_bucket=${{ secrets.AWS_SOURCE_BUCKET }}" \
+            -var="aws_dest_bucket=${{ secrets.AWS_DEST_BUCKET }}" \
+            -var="gcp_project_id=${{ secrets.GCP_PROJECT_ID }}" \
+            -var="gcp_region=${{ secrets.GCP_REGION }}" \
+            -var="gcs_source_bucket=${{ secrets.GCS_SOURCE_BUCKET }}" \
+            -var="gcs_dest_bucket=${{ secrets.GCS_DEST_BUCKET }}"
+          
+          # Uncomment to apply
+          # terraform apply -auto-approve \
+          #   -var="aws_account_id=${{ secrets.AWS_ACCOUNT_ID }}" \
+          #   ...
