@@ -74,13 +74,13 @@ Abstraction hiding implementation details. Allows swapping SQS/PubSub.
 
 - Data exfiltration: Least-privilege IAM
 - Credential compromise: WIF eliminates risk
-- Supply chain: SBOM + scanning
+- Supply chain scanning
 - Container escape: Non-root user, minimal image
 
 ### Defense Layers
 
 1. Network: TLS, private endpoints
-2. Identity: WIF, no long-lived keys
+2. Identity: Identity Federation, no long-lived keys
 3. Authorization: Least-privilege IAM
 4. Application: Checksum validation
 5. Container: Non-root, minimal image
@@ -91,13 +91,12 @@ Abstraction hiding implementation details. Allows swapping SQS/PubSub.
 
 - Logs → CloudWatch/Stackdriver → ElasticSearch
 - Metrics → Prometheus → Grafana
-- Traces → OpenTelemetry → Jaeger/X-Ray
+- Traces → OpenTelemetry → X-Ray
 
 ### Failure Modes
 
 - Source unavailable: Backoff + DLQ
 - Destination full: Retry
-- Network partition: Timeout + retry
 - Corrupted data: Checksum validation
 - Queue overflow: Autoscaling
 
@@ -130,25 +129,15 @@ Single worker, in-memory state, <100 TPS
 ### Evolution
 
 1. Current: Single worker
-2. Multiple workers, Redis, <1000 TPS
-3. K8s autoscaling, distributed state, <10000 TPS
-4. Multi-region, event streaming, >10000 TPS
-
-## Technical Debt
-
-### Known Issues
-
-- No real cloud integration
-- In-memory state
-- No HTTP server
-- Simple retry logic
-- No rate limiting
+2. Multiple workers, Redis
+3. autoscaling, distributed state
+4. Multi-region, event streaming
 
 ### Priority
 
 1. Add cloud SDKs
 2. Redis for state
-3. FastAPI/aiohttp
+3. FastAPI
 4. Circuit breaker
 5. Rate limiting
 
@@ -160,13 +149,6 @@ Single worker, in-memory state, <100 TPS
 - All transfers logged
 - TLS in transit
 - No data retention
-
-### Gaps
-
-- No PII detection
-- No HIPAA considerations
-- No formal audit trail
-- No PCI detection
 
 Document Version: 1.0  
 Author: Daniel Alter - Cloud Team
