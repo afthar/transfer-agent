@@ -97,3 +97,4 @@ gcloud iam service-accounts describe transfer-worker-ci@testops-458808.iam.gserv
 - Rotate credentials every 90 days
 - Monitor usage in cloud consoles
 - Use least privilege permissions
+  
