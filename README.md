@@ -1,38 +1,20 @@
-# Transfer Worker - Event-Driven Cross-Cloud File Transfer Service
+# Transfer Worker
 
-A secure, testable, and production-ready Python service that reacts to events and transfers files between cloud storage providers (AWS S3 and GCP GCS). Built with container-first design, comprehensive security scanning, and full observability.
+Event-driven service for transferring files between AWS S3 and GCP GCS.
 
-## 🚀 Quick Start
+## Quick Start
 
-### One-Command Run
-
+Run with Docker:
 ```bash
-# Run with Docker
 docker build -t transfer-worker . && docker run --rm transfer-worker
-
-# Run locally
-python transfer_worker.py
-
-# Run with docker-compose (if available)
-docker-compose up
 ```
 
-### One-Command Test
-
+Run locally:
 ```bash
-# Run all tests
-pytest test_transfer_worker.py -v
-
-# Run with coverage
-pytest test_transfer_worker.py --cov=transfer_worker --cov-report=term
-
-# Run in Docker
-docker build -t transfer-worker-test --target=builder . && docker run --rm transfer-worker-test pytest test_transfer_worker.py
+python transfer_worker.py
 ```
 
-## 📋 Event Schema
-
-The service processes events conforming to this schema:
+## Event Schema
 
 ```json
 {
@@ -61,84 +43,73 @@ The service processes events conforming to this schema:
 }
 ```
 
-## 🎯 SLOs (Service Level Objectives)
+## SLOs
 
-| SLO | Target | Measurement Window | Description |
-|-----|--------|-------------------|-------------|
-| **Transfer Success Rate** | 99.5% | 30 days | Percentage of successful transfers (excluding client errors) |
-| **Transfer Latency P99** | < 60 seconds | 7 days | 99th percentile transfer completion time |
+| Metric | Target | Window |
+|--------|--------|---------|
+| Transfer Success Rate | 99.5% | 30 days |
+| Transfer Latency P99 | < 60s | 7 days |
 
-## 🔐 Security Architecture
+## Security
 
-### Identity & Authentication
+### Authentication
 
-#### Workload Identity Federation (WIF) / STS Approach
+Uses Workload Identity Federation for cross-cloud authentication without long-lived credentials.
 
-**NO LONG-LIVED KEYS** - This service uses short-lived, automatically rotated credentials through:
+AWS to GCP:
+```
+AWS IAM Role → AWS STS → Workload Identity Pool → GCP Service Account
+```
 
-1. **AWS → GCP Transfers**:
-   ```yaml
-   # AWS assumes IAM role, exchanges for GCP credentials
-   AWS IAM Role → AWS STS → Workload Identity Pool → GCP Service Account
-   ```
+GCP to AWS:
+```
+GCP Service Account → Workload Identity Federation → AWS IAM Role
+```
 
-2. **GCP → AWS Transfers**:
-   ```yaml
-   # GCP Service Account exchanges for AWS credentials
-   GCP Service Account → Workload Identity Federation → AWS IAM Role
-   ```
+### Permissions
 
-### Least-Privilege Permissions
-
-**Source Storage** (Read Only):
+Source (Read Only):
 - `s3:GetObject`
 - `storage.objects.get`
 
-**Destination Storage** (Write Only):
+Destination (Write Only):
 - `s3:PutObject`
 - `storage.objects.create`
 
-**Queue** (Consume Only):
+Queue (Consume Only):
 - `sqs:ReceiveMessage`, `sqs:DeleteMessage`
 - `pubsub.subscriptions.consume`
 
 ### Security Features
 
-- ✅ **Non-root container** (UID 1001)
-- ✅ **Multi-stage Docker build** (minimal attack surface)
-- ✅ **Security scanning** (Trivy, Bandit, Safety, Semgrep)
-- ✅ **SBOM generation** (CycloneDX format)
-- ✅ **Health checks** built-in
-- ✅ **Structured JSON logging** (no sensitive data)
-- ✅ **Checksum validation** (SHA256)
+- Non-root container (UID 1001)
+- Multi-stage Docker build
+- Security scanning (Trivy, Bandit, Safety, Semgrep)
+- SBOM generation (CycloneDX)
+- Health checks
+- Structured JSON logging
+- SHA256 checksum validation
 
-## 🏗️ Architecture
+## Architecture
 
-### Core Components
+### Components
 
-1. **TransferWorker**: Main orchestrator with retry logic and idempotency
-2. **StorageSimulator**: Local testing interface (replaceable with cloud SDKs)
-3. **QueueSimulator**: Message queue abstraction
-4. **MetricsCollector**: Prometheus-compatible metrics
-5. **StructuredLogger**: JSON logging with correlation IDs
+- **TransferWorker**: Main orchestrator with retry logic
+- **StorageSimulator**: Local testing interface
+- **QueueSimulator**: Message queue abstraction
+- **MetricsCollector**: Prometheus metrics
+- **StructuredLogger**: JSON logging with correlation IDs
 
 ### Failure Handling
 
-```yaml
-Retry Strategy:
-  - Max Attempts: 3
-  - Backoff: Exponential (1s → 2s → 4s → max 30s)
-  - Retryable Errors: Network, Timeout, Rate Limit, Service Unavailable
-
-Dead Letter Queue:
-  - Enabled: true
-  - Max Receive Count: 3
-  - Contains: Failed events + error details + retry count
-```
+- Max retry attempts: 3
+- Exponential backoff: 1s, 2s, 4s (max 30s)
+- Retryable errors: Network, Timeout, Rate Limit, Service Unavailable
+- Dead letter queue for failed events
 
 ### Observability
 
-**Logs** (JSON structured):
+Logs (JSON):
 ```json
 {
   "timestamp": "2024-01-15T10:30:00Z",
@@ -152,56 +123,41 @@ Dead Letter Queue:
 }
 ```
 
-**Metrics** (Prometheus format):
+Metrics (Prometheus):
 - `transfer_success_total`
 - `transfer_failure_total`
 - `transfer_duration_seconds`
 - `transfer_bytes`
 - `retry_count`
 
-**Health Endpoints**:
-- `/health` - Liveness probe
-- `/ready` - Readiness probe
+Health endpoints:
+- `/health` - Liveness
+- `/ready` - Readiness
 - `/metrics` - Prometheus metrics
 
-## 🧪 Testing
-
-### Test Coverage
-
-- ✅ **Unit Tests**: Core logic, retry mechanism, idempotency
-- ✅ **Edge Cases**: Network failures, checksum mismatches, DLQ overflow
-- ✅ **Integration Tests**: End-to-end transfer simulation
-- ✅ **Security Tests**: Container scanning, dependency vulnerabilities
-
-### Running Tests
+## Testing
 
 ```bash
-# Unit tests only
+# All tests
+pytest test_transfer_worker.py -v
+
+# With coverage
+pytest test_transfer_worker.py --cov=transfer_worker --cov-report=term
+
+# Specific tests
 pytest test_transfer_worker.py::TestTransferWorker -v
-
-# Integration tests
-pytest test_transfer_worker.py::TestIntegration -v
-
-# With failure injection
-pytest test_transfer_worker.py::test_retry_with_eventual_success -v
 ```
 
-## 🚢 Deployment
+## Deployment
 
-### Container
+### Docker
 
 ```bash
-# Build
 docker build -t transfer-worker:latest .
-
-# Run with volume for persistence
 docker run -v $(pwd)/storage:/app/storage_simulator transfer-worker:latest
-
-# With environment variables
-docker run -e WORKER_LOG_LEVEL=DEBUG transfer-worker:latest
 ```
 
-### Kubernetes (Example)
+### Kubernetes
 
 ```yaml
 apiVersion: apps/v1
@@ -212,7 +168,7 @@ spec:
   replicas: 3
   template:
     spec:
-      serviceAccountName: transfer-worker-sa  # For Workload Identity
+      serviceAccountName: transfer-worker-sa
       containers:
       - name: worker
         image: transfer-worker:latest
@@ -223,121 +179,83 @@ spec:
           limits:
             memory: "512Mi"
             cpu: "500m"
-        livenessProbe:
-          exec:
-            command: ["python", "-c", "..."]
-          periodSeconds: 30
-        readinessProbe:
-          exec:
-            command: ["python", "-c", "..."]
-          periodSeconds: 10
 ```
 
-## 📊 Monitoring
+## Monitoring
 
-### Dashboards
-
-Recommended Grafana queries:
+Grafana queries:
 
 ```promql
-# Success Rate
+# Success rate
 rate(transfer_success_total[5m]) / rate(transfer_success_total[5m] + transfer_failure_total[5m])
 
-# P99 Latency
+# P99 latency
 histogram_quantile(0.99, rate(transfer_duration_seconds_bucket[5m]))
 
 # Throughput
 rate(transfer_bytes[5m])
 ```
 
-### Alerts
+Alert examples:
 
 ```yaml
 - alert: HighFailureRate
   expr: rate(transfer_failure_total[5m]) > 0.05
   for: 5m
-  annotations:
-    summary: "Transfer failure rate above 5%"
 
 - alert: HighLatency
   expr: histogram_quantile(0.99, rate(transfer_duration_seconds_bucket[5m])) > 60
   for: 5m
-  annotations:
-    summary: "P99 latency exceeds 60 seconds"
 ```
 
-## 📝 Assumptions & Unknowns
+## Assumptions
 
-### Assumptions
+- Queue consumer pattern (SQS/PubSub/Service Bus)
+- Optimized for files < 1GB
+- Reliable network between service and cloud providers
+- Idempotency based on event ID
+- Local testing uses filesystem simulation
 
-1. **Queue Integration**: Service assumes a queue consumer pattern (SQS/PubSub/Service Bus)
-2. **File Sizes**: Optimized for files < 1GB (streaming required for larger files)
-3. **Network**: Assumes reliable network between service and cloud providers
-4. **Idempotency**: Based on `eventId` - requires unique IDs from upstream
-5. **Local Testing**: Uses file system simulation - production uses native SDKs
+## Known Limitations
 
-### Unknowns
+- Queue configuration not specified
+- Authentication provider details missing
+- Scale requirements unknown
+- Data encryption requirements unclear
+- Compliance requirements not defined
+- Cost constraints not specified
 
-1. **Queue Configuration**: Actual queue (SQS/PubSub) not specified
-2. **Authentication Details**: Specific WIF/OIDC provider configurations
-3. **Scale Requirements**: Expected TPS and concurrent transfers
-4. **Data Sensitivity**: Encryption requirements beyond TLS
-5. **Compliance**: Specific regulatory requirements (GDPR, HIPAA, etc.)
-6. **Cost Constraints**: Cross-region/cross-cloud egress cost limits
+## Development
 
-## 🛠️ Development
-
-### Prerequisites
-
+Requirements:
 ```bash
-# Python 3.9+
-python --version
-
-# Install dependencies
+python --version  # 3.9+
 pip install -r requirements.txt
-
-# Run locally
 python transfer_worker.py
 ```
 
-### Project Structure
-
+Structure:
 ```
 .
-├── transfer_worker.py       # Main application
-├── test_transfer_worker.py  # Test suite
-├── event_schema.json       # Event JSON schema
-├── ops_profile.json        # Operational profile
-├── requirements.txt        # Python dependencies
-├── Dockerfile             # Multi-stage container build
+├── transfer_worker.py
+├── test_transfer_worker.py
+├── event_schema.json
+├── ops_profile.json
+├── requirements.txt
+├── Dockerfile
 ├── .github/
 │   └── workflows/
-│       └── ci.yml         # CI/CD pipeline
-├── terraform/             # IaC (optional)
-└── README.md             # This file
+│       └── ci.yml
+├── terraform/
+└── README.md
 ```
 
-## 🤝 Contributing
+## License
 
-1. Fork the repository
-2. Create a feature branch
-3. Add tests for new functionality
-4. Ensure all tests pass
-5. Submit a pull request
+[Specify license]
 
-## 📄 License
+## Support
 
-[Specify your license]
+See ADR.md for architectural decisions and ops_profile.json for operational details.
 
-## 🆘 Support
-
-For issues or questions:
-1. Check the [ADR document](./ADR.md) for architectural decisions
-2. Review the [ops profile](./ops_profile.json) for operational details
-3. Create an issue with logs and event JSON
-
----
-
-**Version**: 1.0.0  
-**Last Updated**: January 2024  
-**Maintainer**: Transfer Worker Team
+Version: 1.0.0
