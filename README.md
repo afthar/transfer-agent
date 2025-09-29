@@ -250,12 +250,6 @@ Structure:
 └── README.md
 ```
 
-## License
-
-[Specify license]
-
-## Support
+## ADR
 
 See ADR.md for architectural decisions and ops_profile.json for operational details.
-
-Version: 1.0.0
